@@ -1,0 +1,33 @@
+alias: Protection solaire volet
+fields:
+  volet:
+    description: Entité du volet
+    example: cover.salon
+  position:
+    description: Position finale
+    example: 27
+  helper:
+    description: Helper indiquant que la protection solaire est active
+    example: input_boolean.protection_solaire_grande_baie_active
+sequence:
+  - target:
+      entity_id: "{{ volet }}"
+    action: cover.close_cover
+  - wait_template: |
+      {{ is_state(volet, 'closed') }}
+    timeout: "00:02:00"
+    continue_on_timeout: true
+  - if:
+      - condition: template
+        value_template: "{{ position | int > 0 }}"
+    then:
+      - delay: "00:00:05"
+      - target:
+          entity_id: "{{ volet }}"
+        data:
+          position: "{{ position }}"
+        action: cover.set_cover_position
+  - target:
+      entity_id: "{{ helper }}"
+    action: input_boolean.turn_on
+description: ""

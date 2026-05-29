@@ -1,0 +1,154 @@
+alias: Protection thermique - système global multi-fenêtres (DEBUG + PROD) v2
+description: ""
+triggers:
+  - minutes: /1
+    trigger: time_pattern
+actions:
+  - repeat:
+      for_each: "{{ windows }}"
+      sequence:
+        - variables:
+            w: "{{ repeat.item }}"
+            w_name: "{{ repeat.item.name }}"
+            w_volet: "{{ repeat.item.volet }}"
+            w_helper: "{{ repeat.item.helper }}"
+            w_temp: "{{ repeat.item.temp_sensor }}"
+            w_threshold: "{{ repeat.item.threshold }}"
+            w_comfort: "{{ repeat.item.comfort_threshold }}"
+            w_comfort_cover: "{{ repeat.item.comfort_cover }}"
+            w_az_min: "{{ repeat.item.az_min }}"
+            w_az_max: "{{ repeat.item.az_max }}"
+            w_el_min: "{{ repeat.item.el_min }}"
+        - variables:
+            sun_in_range: |
+              {{
+                sun_az >= w_az_min
+                and sun_az <= w_az_max
+                and sun_el > w_el_min
+              }}
+            heat_is_high: |
+              {{
+                (
+                  states(w_temp) | float(0) >= w_threshold
+                  and uv >= 4
+                )
+                or heat_wave
+              }}
+            cover_is_low: |
+              {{
+                state_attr(w_volet,'current_position') | float(100) > 35
+              }}
+            helper_off: "{{ is_state(w_helper,'off') }}"
+            helper_on: "{{ is_state(w_helper,'on') }}"
+        - choose:
+            - conditions:
+                - condition: state
+                  entity_id: input_boolean.debug_protection_solaire
+                  state: "on"
+              sequence:
+                - data:
+                    title: 🌞 DEBUG VOLET - {{ w_name }}
+                    message: >
+                      🌍 Soleil: azimuth = {{ sun_az }} elevation = {{ sun_el }}
+                      ☀️ UV: {{ uv }}  
+                      🌡️ Canicule: {{ heat_wave }} 
+                      🌡️ Temp intérieure: {{ states(w_temp) }}
+
+                      🪟 Volet position: {{
+                      state_attr(w_volet,'current_position') }}
+
+                      📐 Zone solaire: az_min = {{ w_az_min }} az_max = {{
+                      w_az_max }} el_min = {{ w_el_min }}
+
+                      ✔ SUN_IN_RANGE = {{ sun_in_range }}  ✔ HEAT_IS_HIGH = {{
+                      heat_is_high }}   ✔ COVER_INSUFFICIENT = {{ cover_is_low
+                      }} ✔ HELPER = {{ states(w_helper) }}
+                  action: persistent_notification.create
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ sun_in_range }}"
+                - condition: template
+                  value_template: "{{ heat_is_high }}"
+                - condition: template
+                  value_template: "{{ cover_is_low }}"
+                - condition: template
+                  value_template: "{{ helper_off }}"
+              sequence:
+                - data:
+                    volet: "{{ w_volet }}"
+                    position: "{{ w_comfort_cover }}"
+                    helper: "{{ w_helper }}"
+                  action: script.protection_solaire_volet
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ not sun_in_range }}"
+                - condition: template
+                  value_template: "{{ helper_on }}"
+              sequence:
+                - data:
+                    volet: "{{ w_volet }}"
+                    helper: "{{ w_helper }}"
+                  action: script.fin_de_protection_solaire_volet
+variables:
+  windows:
+    - name: cuisine
+      volet: cover.sonoff_mini_zbrbs_5
+      helper: input_boolean.protection_solaire_cuisine_active
+      temp_sensor: sensor.tze200_a8sdabtg_ts0601_temperature
+      threshold: 23
+      comfort_threshold: 21
+      comfort_cover: 27
+      az_min: 60
+      az_max: 170
+      el_min: 9
+    - name: grande_baie
+      volet: cover.sonoff_mini_zbrbs_4
+      helper: input_boolean.protection_solaire_grande_baie_active
+      temp_sensor: sensor.tze200_a8sdabtg_ts0601_temperature
+      threshold: 23
+      comfort_threshold: 21
+      comfort_cover: 29
+      az_min: 110
+      az_max: 280
+      el_min: 5
+    - name: petite_baie
+      volet: cover.sonoff_mini_zbrbs_3
+      helper: input_boolean.protection_solaire_petite_baie_active
+      temp_sensor: sensor.tze200_a8sdabtg_ts0601_temperature
+      threshold: 2
+      comfort_threshold: 21
+      comfort_cover: 29
+      az_min: 210
+      az_max: 355
+      el_min: 5
+    - name: chambre_1
+      volet: cover.sonoff_mini_zbrbs
+      helper: input_boolean.protection_solaire_chambre_1_active
+      temp_sensor: sensor.ewelink_snzb_02p_temperature
+      threshold: 2
+      comfort_threshold: 21
+      comfort_cover: 29
+      az_min: 210
+      az_max: 355
+      el_min: 5
+    - name: chambre_2
+      volet: cover.sonoff_mini_zbrbs_2
+      helper: input_boolean.protection_solaire_chambre_2_active
+      temp_sensor: sensor.ewelink_snzb_02p_temperature_2
+      threshold: 2
+      comfort_threshold: 21
+      comfort_cover: 29
+      az_min: 50
+      az_max: 130
+      el_min: 15
+  sun_az: "{{ state_attr('sun.sun','azimuth') | float(0) }}"
+  sun_el: "{{ state_attr('sun.sun','elevation') | float(0) }}"
+  uv: "{{ states('sensor.paris_uv') | float(0) }}"
+  heat_wave: |
+    {{
+      (state_attr('sensor.75_weather_alert', 'Canicule') | lower)
+      in ['jaune', 'orange', 'rouge']
+    }}
+mode: single
