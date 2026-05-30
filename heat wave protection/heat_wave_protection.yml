@@ -13,12 +13,12 @@ actions:
             w_volet: "{{ repeat.item.volet }}"
             w_helper: "{{ repeat.item.helper }}"
             w_temp: "{{ repeat.item.temp_sensor }}"
-            w_threshold: "{{ repeat.item.threshold }}"
+            w_threshold: "{{ repeat.item.threshold | float }}"
             w_comfort: "{{ repeat.item.comfort_threshold }}"
-            w_comfort_cover: "{{ repeat.item.comfort_cover }}"
-            w_az_min: "{{ repeat.item.az_min }}"
-            w_az_max: "{{ repeat.item.az_max }}"
-            w_el_min: "{{ repeat.item.el_min }}"
+            w_comfort_cover: "{{ repeat.item.comfort_cover | float }}"
+            w_az_min: "{{ repeat.item.az_min | float }}"
+            w_az_max: "{{ repeat.item.az_max | float }}"
+            w_el_min: "{{ repeat.item.el_min | float }}"
         - variables:
             sun_in_range: |
               {{
@@ -30,7 +30,6 @@ actions:
               {{
                 (
                   states(w_temp) | float(0) >= w_threshold
-                  and uv >= 4
                 )
                 or heat_wave
               }}
@@ -40,6 +39,22 @@ actions:
               }}
             helper_off: "{{ is_state(w_helper,'off') }}"
             helper_on: "{{ is_state(w_helper,'on') }}"
+            can_cool: |
+              {{
+                states(w_temp) | float(0) >= w_comfort
+                and
+                states(w_temp) | float(0) >= (outside_temp - cooling_offset)
+              }}
+            decision: >
+              {% if sun_in_range and relative_uv >= uv_threshold and
+              heat_is_high and cover_is_low and helper_off %}
+                close
+              {% elif ((not sun_in_range) or relative_uv < uv_threshold) and
+              helper_on and can_cool %}
+                open
+              {% else %}
+                do_nothing
+              {% endif %}            
         - choose:
             - conditions:
                 - condition: state
@@ -50,9 +65,13 @@ actions:
                     title: 🌞 DEBUG VOLET - {{ w_name }}
                     message: >
                       🌍 Soleil: azimuth = {{ sun_az }} elevation = {{ sun_el }}
-                      ☀️ UV: {{ uv }}  
-                      🌡️ Canicule: {{ heat_wave }} 
-                      🌡️ Temp intérieure: {{ states(w_temp) }}
+
+                      ☀️ UV: {{ uv }}     ☁️ Couverture nuageuse: {{
+                      states('sensor.saulge_l_hopital_cloud_cover') }}% 🌤️ UV
+                      relatif: {{ relative_uv | round(1) }} 
+
+                      🌡️ Canicule: {{ heat_wave }} 🌡️ Temp intérieure: {{
+                      states(w_temp) }} 🌡️ Temp extérieure: {{ outside_temp }}
 
                       🪟 Volet position: {{
                       state_attr(w_volet,'current_position') }}
@@ -60,20 +79,20 @@ actions:
                       📐 Zone solaire: az_min = {{ w_az_min }} az_max = {{
                       w_az_max }} el_min = {{ w_el_min }}
 
-                      ✔ SUN_IN_RANGE = {{ sun_in_range }}  ✔ HEAT_IS_HIGH = {{
-                      heat_is_high }}   ✔ COVER_INSUFFICIENT = {{ cover_is_low
-                      }} ✔ HELPER = {{ states(w_helper) }}
+                      ✔ SUN_IN_RANGE = {{ sun_in_range }}  
+
+                      ✔ HEAT_IS_HIGH = {{ heat_is_high }}  
+
+                      ✔ COVER_INSUFFICIENT = {{ cover_is_low }} 
+
+                      ✔ HELPER = {{ states(w_helper) }}
+
+                      🎯 DÉCISION = {{ decision }}                  
                   action: persistent_notification.create
         - choose:
             - conditions:
                 - condition: template
-                  value_template: "{{ sun_in_range }}"
-                - condition: template
-                  value_template: "{{ heat_is_high }}"
-                - condition: template
-                  value_template: "{{ cover_is_low }}"
-                - condition: template
-                  value_template: "{{ helper_off }}"
+                  value_template: "{{ decision == 'close' }}"
               sequence:
                 - data:
                     volet: "{{ w_volet }}"
@@ -83,9 +102,7 @@ actions:
         - choose:
             - conditions:
                 - condition: template
-                  value_template: "{{ not sun_in_range }}"
-                - condition: template
-                  value_template: "{{ helper_on }}"
+                  value_template: "{{ decision == 'open' }}"
               sequence:
                 - data:
                     volet: "{{ w_volet }}"
@@ -145,10 +162,18 @@ variables:
       el_min: 15
   sun_az: "{{ state_attr('sun.sun','azimuth') | float(0) }}"
   sun_el: "{{ state_attr('sun.sun','elevation') | float(0) }}"
-  uv: "{{ states('sensor.paris_uv') | float(0) }}"
+  uv: "{{ states('sensor.saulge_l_hopital_uv') | float(0) }}"
+  uv_threshold: 4
+  relative_uv: |
+    {{
+      (states('sensor.saulge_l_hopital_uv') | float(0))
+      * (1 - (states('sensor.saulge_l_hopital_cloud_cover') | float(0) / 100))
+    }}
   heat_wave: |
     {{
-      (state_attr('sensor.75_weather_alert', 'Canicule') | lower)
+      (state_attr('sensor.49_weather_alert', 'Canicule') | lower)
       in ['jaune', 'orange', 'rouge']
     }}
+  outside_temp: "{{ states('sensor.temperature_exterieure') | float(0) }}"
+  cooling_offset: 2
 mode: single
