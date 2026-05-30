@@ -171,7 +171,7 @@ variables:
     }}
   heat_wave: |
     {{
-      (state_attr('sensor.49_weather_alert', 'Canicule') | lower)
+      (state_attr('sensor.75_weather_alert', 'Canicule') | lower)
       in ['jaune', 'orange', 'rouge']
     }}
   outside_temp: "{{ states('sensor.temperature_exterieure') | float(0) }}"
