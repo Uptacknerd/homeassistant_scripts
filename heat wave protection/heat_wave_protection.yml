@@ -13,8 +13,8 @@ actions:
             w_volet: "{{ repeat.item.volet }}"
             w_helper: "{{ repeat.item.helper }}"
             w_temp: "{{ repeat.item.temp_sensor }}"
-            w_threshold: "{{ repeat.item.threshold | float }}"
-            w_comfort: "{{ repeat.item.comfort_threshold }}"
+            w_overheat_threshold: "{{ repeat.item.overheat_threshold | float }}"
+            w_comfort_threshold: "{{ repeat.item.comfort_threshold | float }}"
             w_comfort_cover: "{{ repeat.item.comfort_cover | float }}"
             w_az_min: "{{ repeat.item.az_min | float }}"
             w_az_max: "{{ repeat.item.az_max | float }}"
@@ -29,9 +29,15 @@ actions:
             heat_is_high: |
               {{
                 (
-                  states(w_temp) | float(0) >= w_threshold
+                  states(w_temp) | float(0) >= w_overheat_threshold
                 )
                 or heat_wave
+              }}
+            can_cool: |
+              {{
+                states(w_temp) | float(0) >= w_comfort_threshold
+                and
+                states(w_temp) | float(0) >= (outside_temp - cooling_offset)
               }}
             cover_is_low: |
               {{
@@ -39,30 +45,48 @@ actions:
               }}
             helper_off: "{{ is_state(w_helper,'off') }}"
             helper_on: "{{ is_state(w_helper,'on') }}"
-            can_cool: |
-              {{
-                states(w_temp) | float(0) >= w_comfort
-                and
-                states(w_temp) | float(0) >= (outside_temp - cooling_offset)
-              }}
             decision: >
-              {% if sun_in_range and relative_uv >= uv_threshold and
-              heat_is_high and cover_is_low and helper_off %}
-                close
-              {% elif ((not sun_in_range) or relative_uv < uv_threshold) and
-              helper_on and can_cool %}
+              {% set temp = states(w_temp) | float(0) %}
+
+              {% if helper_off
+                and sun_in_range
+                and relative_uv >= uv_threshold
+                and (temp >= w_overheat_threshold or heat_wave) %}
+                
+                overheat
+
+              {% elif helper_off
+                and sun_in_range
+                and relative_uv >= uv_threshold
+                and temp >= w_comfort_threshold %}
+                
+                comfort
+
+              {% elif helper_on
+                and (
+                  not sun_in_range
+                  or relative_uv < uv_threshold
+                  or (temp >= outside_temp + cooling_offset)
+                ) %}
+
                 open
+
               {% else %}
+
                 do_nothing
-              {% endif %}            
+
+              {% endif %}         
         - choose:
             - conditions:
-                - condition: state
-                  entity_id: input_boolean.debug_protection_solaire
-                  state: "on"
+              - condition: template
+                value_template: >
+                  {{
+                    is_state('input_boolean.debug_protection_solaire', 'on')
+                    or decision in ['open', 'comfort', 'overheat']
+                  }}
               sequence:
                 - data:
-                    title: 🌞 DEBUG VOLET - {{ w_name }}
+                    title: 🌞 PROTECTION VOLET - {{ w_name }}
                     message: >
                       🌍 Soleil: azimuth = {{ sun_az }} elevation = {{ sun_el }}
 
@@ -92,7 +116,17 @@ actions:
         - choose:
             - conditions:
                 - condition: template
-                  value_template: "{{ decision == 'close' }}"
+                  value_template: "{{ decision == 'overheat' }}"
+              sequence:
+                - data:
+                    volet: "{{ w_volet }}"
+                    position: 0
+                    helper: "{{ w_helper }}"
+                  action: script.protection_solaire_volet
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ decision == 'comfort' }}"
               sequence:
                 - data:
                     volet: "{{ w_volet }}"
@@ -114,7 +148,7 @@ variables:
       volet: cover.sonoff_mini_zbrbs_5
       helper: input_boolean.protection_solaire_cuisine_active
       temp_sensor: sensor.tze200_a8sdabtg_ts0601_temperature
-      threshold: 23
+      overheat_threshold: 23
       comfort_threshold: 21
       comfort_cover: 27
       az_min: 60
@@ -124,7 +158,7 @@ variables:
       volet: cover.sonoff_mini_zbrbs_4
       helper: input_boolean.protection_solaire_grande_baie_active
       temp_sensor: sensor.tze200_a8sdabtg_ts0601_temperature
-      threshold: 23
+      overheat_threshold: 23
       comfort_threshold: 21
       comfort_cover: 29
       az_min: 110
@@ -134,7 +168,7 @@ variables:
       volet: cover.sonoff_mini_zbrbs_3
       helper: input_boolean.protection_solaire_petite_baie_active
       temp_sensor: sensor.tze200_a8sdabtg_ts0601_temperature
-      threshold: 2
+      overheat_threshold: 23
       comfort_threshold: 21
       comfort_cover: 29
       az_min: 210
@@ -144,7 +178,7 @@ variables:
       volet: cover.sonoff_mini_zbrbs
       helper: input_boolean.protection_solaire_chambre_1_active
       temp_sensor: sensor.ewelink_snzb_02p_temperature
-      threshold: 2
+      overheat_threshold: 23
       comfort_threshold: 21
       comfort_cover: 29
       az_min: 210
@@ -154,7 +188,7 @@ variables:
       volet: cover.sonoff_mini_zbrbs_2
       helper: input_boolean.protection_solaire_chambre_2_active
       temp_sensor: sensor.ewelink_snzb_02p_temperature_2
-      threshold: 2
+      overheat_threshold: 23
       comfort_threshold: 21
       comfort_cover: 29
       az_min: 50
@@ -171,7 +205,7 @@ variables:
     }}
   heat_wave: |
     {{
-      (state_attr('sensor.49_weather_alert', 'Canicule') | lower)
+      (state_attr('sensor.75_weather_alert', 'Canicule') | lower)
       in ['jaune', 'orange', 'rouge']
     }}
   outside_temp: "{{ states('sensor.temperature_exterieure') | float(0) }}"
