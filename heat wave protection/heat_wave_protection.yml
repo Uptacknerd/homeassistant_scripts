@@ -45,45 +45,51 @@ actions:
               }}
             helper_off: "{{ is_state(w_helper,'off') }}"
             helper_on: "{{ is_state(w_helper,'on') }}"
-            decision: >
+            decision: |
               {% set temp = states(w_temp) | float(0) %}
-
+              {% set decision = 'do_nothing' %}
+            
+              {# Priorité basse : confort #}
               {% if helper_off
                 and sun_in_range
                 and relative_uv >= uv_threshold
-                and (temp >= w_overheat_threshold or heat_wave) %}
-                
-                overheat
-
-              {% elif helper_off
-                and sun_in_range
-                and relative_uv >= uv_threshold
-                and temp >= w_comfort_threshold %}
-                
-                comfort
-
-              {% elif helper_on
+                and temp >= w_comfort_threshold
+              %}
+                {% set decision = 'comfort' %}
+              {% endif %}
+            
+              {# Priorité moyenne : ouverture #}
+              {% if helper_on
                 and (
                   not sun_in_range
                   or relative_uv < uv_threshold
-                  or (temp >= outside_temp + cooling_offset)
-                ) %}
-
-                open
-
-              {% else %}
-
-                do_nothing
-
-              {% endif %}         
+                  or temp <= w_comfort_threshold - 1
+                )
+              %}
+                {% set decision = 'open' %}
+              {% endif %}
+            
+              {# Priorité haute : surchauffe #}
+              {% if helper_off
+                and sun_in_range
+                and relative_uv >= uv_threshold
+                and (
+                  temp >= w_overheat_threshold
+                  or heat_wave
+                )
+              %}
+                {% set decision = 'overheat' %}
+              {% endif %}
+            
+              {{ decision }}       
         - choose:
             - conditions:
-              - condition: template
-                value_template: >
-                  {{
-                    is_state('input_boolean.debug_protection_solaire', 'on')
-                    or decision in ['open', 'comfort', 'overheat']
-                  }}
+                - condition: template
+                  value_template: |
+                    {{
+                      is_state('input_boolean.debug_protection_solaire', 'on')
+                      or decision in ['open', 'comfort', 'overheat']
+                    }}
               sequence:
                 - data:
                     title: 🌞 PROTECTION VOLET - {{ w_name }}
