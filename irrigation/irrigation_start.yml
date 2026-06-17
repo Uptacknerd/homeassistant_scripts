@@ -67,11 +67,15 @@ variables:
   target_soil_saturation: 80
   irrigation_cycle_volume: 80
   cycle_interval: 1800
+  irrigation_window_start: "07:30:00"
+  irrigation_window_end: "16:30:00"
   irrigation_fraction: 0.3
   water_capacity: 1900
   soil_saturation: "{{ states('input_number.watering_fruit_trees_soil_saturation') | float(0) }}"
   valve_is_on: "{{ is_state('switch.electrovanne', 'on') }}"
   debug_enabled: "{{ is_state('input_boolean.watering_fruit_trees_debug', 'on') }}"
+  within_irrigation_window: |
+    {{ today_at(irrigation_window_start) <= now() <= today_at(irrigation_window_end) }}
   deficit: |
     {{ [target_soil_saturation - soil_saturation, 0] | max }}
   required_water: >
@@ -91,4 +95,5 @@ variables:
       (soil_saturation | float(0)) < start_threshold
       and not valve_is_on
       and target_volume | float(0) > 0
+      and within_irrigation_window
     }}

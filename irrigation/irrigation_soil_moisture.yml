@@ -108,8 +108,18 @@ variables:
       + rain_gain
     %}
 
-    {% set raw = (w / water_capacity) * 100 - drainage_loss %} {% set k = 0.35
-    %} {# coefficient de drainage argile #} {% if raw > 100 %}
+    {% set raw = (w / water_capacity) * 100 - drainage_loss %}
+    {#
+      Soil texture drainage coefficient.
+      Current setting: clay soil.
+      Examples:
+      - clay: 0.35
+      - loam: 0.20
+      - sand: 0.08
+      Higher values mean slower drainage and more water retained.
+    #}
+    {% set k = 0.35 %}
+    {% if raw > 100 %}
       {% set corrected = 100 + (raw - 100) * (1 - k) %}
     {% elif raw < 0 %}
       {% set corrected = raw * (1 - k) %}
