@@ -1,70 +1,70 @@
-# 🌞 Protection thermique intelligente multi-fenêtres pour Home Assistant
+# 🌞 Multi-Window Thermal Protection for Home Assistant
 
-Automatisation Home Assistant avancée permettant de protéger automatiquement un logement contre la surchauffe estivale en pilotant les volets selon :
+Advanced Home Assistant automation that automatically protects a home from summer overheating by controlling blinds according to:
 
-* l’orientation du soleil,
-* la position solaire réelle,
-* la température intérieure,
-* l’indice UV,
-* les alertes canicule,
-* et des seuils de confort personnalisés par fenêtre.
+* the sun's orientation,
+* the actual solar position,
+* indoor temperature,
+* UV index,
+* heat-wave alerts,
+* and per-window comfort thresholds.
 
-Cette version est conçue pour être :
+This version is designed to be:
 
-✅ modulaire
-✅ réutilisable
-✅ facile à adapter à d'autres logements
-✅ compatible avec plusieurs volets/fenêtres
-✅ observable grâce à un mode DEBUG intégré
+✅ modular
+✅ reusable
+✅ easy to adapt to other homes
+✅ compatible with multiple blinds/windows
+✅ observable thanks to a built-in DEBUG mode
 
 ---
 
-# ✨ Fonctionnalités
+# ✨ Features
 
-* Gestion centralisée de plusieurs fenêtres/volets
-* Protection thermique pièce par pièce
-* Calcul solaire réel via `sun.sun`
-* Déclenchement selon :
+* Centralized management of multiple windows/blinds
+* Room-by-room thermal protection
+* Real solar calculation via `sun.sun`
+* Triggering based on:
 
-  * azimut solaire
-  * élévation solaire
+  * solar azimuth
+  * solar elevation
   * UV
-  * température intérieure
-  * alerte canicule météo
-* Positionnement partiel intelligent des volets
-* Retour automatique à l’état normal lorsque le soleil n’impacte plus la fenêtre
-* Notifications DEBUG détaillées
-* Architecture basée sur des variables facilement extensibles
+  * indoor temperature
+  * weather heat-wave alert
+* Intelligent partial blind positioning
+* Automatic return to the normal state when the sun no longer hits the window
+* Detailed DEBUG notifications
+* Architecture based on easily extensible variables
 
 ---
 
-# 🧠 Principe de fonctionnement
+# 🧠 How It Works
 
-Toutes les minutes, l’automatisation :
+Every minute, the automation:
 
-1. Parcourt la liste des fenêtres définies dans `windows`
-2. Vérifie pour chaque ouverture :
+1. Iterates through the list of windows defined in `windows`
+2. Checks for each opening:
 
-   * si le soleil tape réellement sur la façade
-   * si la chaleur devient problématique
-   * si le volet n’est pas déjà suffisamment fermé
-3. Active une protection solaire adaptée
-4. Réouvre automatiquement lorsque le soleil quitte la zone
+   * whether the sun is actually hitting the facade
+   * whether the heat is becoming problematic
+   * whether the blind is not already sufficiently closed
+3. Activates an appropriate solar protection
+4. Reopens automatically when the sun leaves the exposure zone
 
 ---
 
-# ☀️ Conditions de fermeture des volets
+# ☀️ Blind Closing Conditions
 
-La protection solaire s’active uniquement si :
+Solar protection is activated only if:
 
-## 1. Le soleil éclaire réellement la fenêtre
+## 1. The sun is actually hitting the window
 
-Conditions :
+Conditions:
 
-* azimut solaire compris entre `az_min` et `az_max`
-* élévation solaire supérieure à `el_min`
+* solar azimuth between `az_min` and `az_max`
+* solar elevation greater than `el_min`
 
-Exemple :
+Example:
 
 ```yaml
 az_min: 110
@@ -74,20 +74,20 @@ el_min: 5
 
 ---
 
-## 2. La chaleur est jugée excessive
+## 2. The heat is considered excessive
 
-La protection s’active si :
+Protection is activated if:
 
 ```yaml
-température intérieure >= threshold
-ET UV >= 4
+indoor temperature >= threshold
+AND UV >= 4
 ```
 
-OU si une alerte canicule est détectée.
+OR if a heat-wave alert is detected.
 
 ---
 
-## 3. Le volet n’est pas déjà suffisamment fermé
+## 3. The blind is not already sufficiently closed
 
 ```yaml
 current_position > 35
@@ -95,85 +95,85 @@ current_position > 35
 
 ---
 
-# 🔄 Réouverture automatique
+# 🔄 Automatic Reopening
 
-Lorsque le soleil sort de la zone d’exposition :
+When the sun leaves the exposure zone:
 
 ```yaml
 not sun_in_range
 ```
 
-et que la protection était active, le script de fin de protection est exécuté.
+and the protection was active, the end-of-protection script is executed.
 
 ---
 
-# 🧩 Structure du système
+# 🧩 System Structure
 
-Le système repose sur :
+The system is based on:
 
-## 1. Une automatisation principale
+## 1. A main automation
 
-Elle orchestre toute la logique.
+It orchestrates the full logic.
 
 ---
 
-## 2. Un script de fermeture
+## 2. A closing script
 
 ```yaml
 script.protection_solaire_volet
 ```
 
-Responsable de :
+Responsible for:
 
-* fermer le volet à une position cible
-* activer le helper associé
+* closing the blind to a target position
+* activating the associated helper
 
 ---
 
-## 3. Un script de fin de protection
+## 3. An end-of-protection script
 
 ```yaml
 script.fin_de_protection_solaire_volet
 ```
 
-Responsable de :
+Responsible for:
 
-* restaurer le comportement normal
-* désactiver le helper
+* restoring normal behavior
+* deactivating the helper
 
 ---
 
-## 4. Des helpers `input_boolean`
+## 4. `input_boolean` helpers
 
-Un helper par fenêtre :
+A helper per window:
 
 ```yaml
 input_boolean.protection_solaire_cuisine_active
 ```
 
-Ils servent à mémoriser l’état de protection.
+They are used to remember the protection state.
 
 ---
 
-# ⚙️ Paramètres à adapter
+# ⚙️ Parameters to Adjust
 
-## 📌 Liste des fenêtres
+## 📌 Window List
 
-Tout se configure ici :
+Everything is configured here:
 
 ```yaml
 windows:
 ```
 
-Chaque entrée représente une ouverture.
+Each entry represents one opening.
 
 ---
 
-# 🪟 Paramètres d’une fenêtre
+# 🪟 Window Parameters
 
 ## `name`
 
-Nom lisible utilisé dans les logs/debug.
+Human-readable name used in logs/debug.
 
 ```yaml
 name: cuisine
@@ -183,7 +183,7 @@ name: cuisine
 
 ## `volet`
 
-Entité du volet roulant.
+Blind entity.
 
 ```yaml
 volet: cover.mon_volet
@@ -193,7 +193,7 @@ volet: cover.mon_volet
 
 ## `helper`
 
-Helper associé à cette fenêtre.
+Helper associated with this window.
 
 ```yaml
 helper: input_boolean.protection_solaire_cuisine_active
@@ -203,7 +203,7 @@ helper: input_boolean.protection_solaire_cuisine_active
 
 ## `temp_sensor`
 
-Capteur de température intérieure.
+Indoor temperature sensor.
 
 ```yaml
 temp_sensor: sensor.temperature_salon
@@ -213,7 +213,7 @@ temp_sensor: sensor.temperature_salon
 
 ## `threshold`
 
-Température déclenchant la protection.
+Temperature that triggers protection.
 
 ```yaml
 threshold: 23
@@ -223,24 +223,24 @@ threshold: 23
 
 ## `comfort_cover`
 
-Position cible du volet.
+Target blind position.
 
-Exemple :
+Example:
 
 ```yaml
 comfort_cover: 27
 ```
 
-Correspond à :
+Corresponds to:
 
-* 0 = fermé
-* 100 = ouvert
+* 0 = closed
+* 100 = open
 
 ---
 
 ## `az_min` / `az_max`
 
-Zone d’exposition solaire de la fenêtre.
+Solar exposure zone for the window.
 
 ```yaml
 az_min: 110
@@ -251,27 +251,27 @@ az_max: 280
 
 ## `el_min`
 
-Hauteur minimale du soleil avant activation.
+Minimum sun height before activation.
 
 ```yaml
 el_min: 5
 ```
 
-Permet d’éviter les déclenchements au lever/coucher du soleil.
+Helps avoid triggers at sunrise/sunset.
 
 ---
 
-# 🧭 Comment déterminer les bons azimuts ?
+# 🧭 How to Determine the Right Azimuths
 
-## Méthode simple
+## Simple Method
 
-Utiliser :
+Use:
 
-* les Developer Tools Home Assistant
-* l’entité `sun.sun`
-* observer les valeurs lorsque le soleil éclaire réellement la fenêtre
+* Home Assistant Developer Tools
+* the `sun.sun` entity
+* observe the values when the sun is actually hitting the window
 
-Attributs utiles :
+Useful attributes:
 
 ```yaml
 azimuth
@@ -280,51 +280,51 @@ elevation
 
 ---
 
-# 🐞 Mode DEBUG
+# 🐞 DEBUG Mode
 
-Le mode debug repose sur :
+The debug mode relies on:
 
 ```yaml
 input_boolean.debug_protection_solaire
 ```
 
-Lorsqu’il est activé :
+When it is enabled:
 
-* une notification persistante est générée toutes les minutes
-* toutes les conditions calculées sont visibles
+* a persistent notification is generated every minute
+* all computed conditions are visible
 
-Très utile pour :
+Very useful for:
 
-* calibrer les azimuts
-* ajuster les seuils
-* comprendre les comportements
+* calibrating azimuths
+* adjusting thresholds
+* understanding behaviors
 
 ---
 
-# 🌡️ Gestion de la canicule
+# 🌡️ Heat-Wave Management
 
-Cette automatisation utilise :
+This automation uses:
 
 ```yaml
 location: paris
 sensor.{{ location }}_weather_alert
 ```
 
-et recherche les niveaux :
+and checks the levels:
 
-* jaune
+* yellow
 * orange
-* rouge
+* red
 
-Vous pouvez remplacer ce capteur par votre propre source météo.
+You can replace this sensor with your own weather source.
 
 ---
 
-# 🔧 Dépendances
+# 🔧 Dependencies
 
-## Entités nécessaires
+## Required Entities
 
-### Soleil
+### Sun
 
 ```yaml
 sun.sun
@@ -334,7 +334,7 @@ sun.sun
 
 ### UV
 
-Exemple :
+Example:
 
 ```yaml
 location: paris
@@ -343,25 +343,25 @@ sensor.{{ location }}_uv
 
 ---
 
-### Températures intérieures
+### Indoor Temperatures
 
-Un capteur par pièce/fenêtre.
+One sensor per room/window.
 
 ---
 
-### Volets pilotables
+### Controllable Blinds
 
-Entités `cover.*`
+`cover.*` entities
 
 ---
 
 # 🚀 Installation
 
-## 1. Créer les helpers
+## 1. Create the Helpers
 
-Créer un `input_boolean` par fenêtre.
+Create one `input_boolean` per window.
 
-Exemple :
+Example:
 
 ```yaml
 input_boolean:
@@ -370,7 +370,7 @@ input_boolean:
 
 ---
 
-## 2. Créer le helper DEBUG
+## 2. Create the DEBUG Helper
 
 ```yaml
 input_boolean:
@@ -379,18 +379,18 @@ input_boolean:
 
 ---
 
-## 3. Ajouter les scripts
+## 3. Add the Scripts
 
-Créer :
+Create:
 
 * `script.protection_solaire_volet`
 * `script.fin_de_protection_solaire_volet`
 
 ---
 
-## 4. Ajouter l’automatisation
+## 4. Add the Automation
 
-Importer le YAML dans :
+Import the YAML in:
 
 ```text
 Settings → Automations & Scenes
@@ -398,79 +398,79 @@ Settings → Automations & Scenes
 
 ---
 
-# 💡 Conseils de calibration
+# 💡 Calibration Tips
 
-## Commencer avec le DEBUG activé
+## Start with DEBUG Enabled
 
-Observer :
+Observe:
 
-* les azimuts
-* les élévations
-* les heures réelles d’exposition
+* azimuths
+* elevations
+* actual exposure times
 
 ---
 
-## Ajuster progressivement
+## Adjust Gradually
 
-Modifier :
+Modify:
 
 * `az_min`
 * `az_max`
 * `el_min`
 
-jusqu’à obtenir un comportement parfait.
+until the behavior is perfect.
 
 ---
 
-# 🔋 Optimisations possibles
+# 🔋 Possible Improvements
 
-## Ajouter la température extérieure
+## Add Outdoor Temperature
 
-Pour éviter des fermetures inutiles.
-
----
-
-## Ajouter la présence
-
-Ne protéger que lorsque le logement est occupé.
+To avoid unnecessary closing.
 
 ---
 
-## Ajouter la météo prévisionnelle
+## Add Presence Detection
 
-Anticipation des pics thermiques.
-
----
-
-## Ajouter un mode hiver
-
-Exploiter les apports solaires gratuits.
+Protect only when the home is occupied.
 
 ---
 
-# 🏠 Exemple d’usage réel
+## Add Weather Forecasting
 
-Cette automatisation est particulièrement efficace pour :
-
-* les grandes baies vitrées
-* les logements RT2012 très vitrés
-* les appartements traversants
-* les chambres exposées ouest
-* les maisons avec forte inertie thermique
+Anticipate thermal peaks.
 
 ---
 
-# 📜 Licence
+## Add a Winter Mode
+
+Use free solar gains.
+
+---
+
+# 🏠 Real-World Use Case
+
+This automation is particularly effective for:
+
+* large bay windows
+* highly glazed RT2012 homes
+* through-apartments
+* west-facing bedrooms
+* houses with high thermal inertia
+
+---
+
+# 📜 License
 
 MIT
 
 ---
 
-# ❤️ Remerciements
+# ❤️ Thanks
 
-Merci à la communauté :
+Thanks to the community:
 
 * Home Assistant
 * Zigbee2MQTT
 * ESPHome
-* et tous les passionnés de domotique libre ☀️
+* and all fans of free home automation ☀️

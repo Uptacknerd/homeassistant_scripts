@@ -47,8 +47,35 @@ variables:
   entity_uv: "{{ 'sensor.' ~ location ~ '_uv' }}"
   entity_rain: sensor.openweathermap_rain_intensity
   entity_valve: switch.electrovanne_state
-  water_capacity: 1900
-  root_zone_area: 16
+  # Number of trees represented by this model, unitless.
+  tree_count: 8
+  # Horizontal surface area covered by one tree's root zone, in square meters (m2).
+  # Multiply by tree_count to get the total modeled root zone area.
+  individual_root_zone_area: 2
+  # Total horizontal surface area of the modeled root zone, in square meters (m2).
+  root_zone_area: "{{ (tree_count | float(0)) * (individual_root_zone_area | float(0)) }}"
+  # Modeled depth of the root zone, in meters (m).
+  # This is the average effective rooting depth used by the model.
+  root_zone_depth: 0.625
+  root_zone_volume: "{{ (root_zone_area | float(0)) * (root_zone_depth | float(0)) }}"
+  # Usable water storage density of the root zone, expressed in L/m3.
+  #
+  # This is the soil-type parameter: how many liters of plant-available water
+  # one cubic meter of soil can hold before drainage dominates.
+  #
+  # To estimate the total capacity used by the model:
+  #   water_capacity (L) = root_zone_volume (m3) * usable_water_storage (L/m3)
+  #
+  # If you have a real soil test, use that value first. Otherwise, use the
+  # soil texture as a starting point:
+  #
+  # - sand: 100 to 130 L/m3
+  # - loam: 140 to 170 L/m3
+  # - clay: 180 to 220 L/m3
+  #
+  # Current setting follows a clay-like soil behavior.
+  usable_water_storage: 190
+  water_capacity: "{{ (root_zone_volume | float(0)) * (usable_water_storage | float(0)) }}"
   crop_coefficient: 0.85
   irrigation_flow_rate: 475
   rain_efficiency: 0.75
@@ -100,15 +127,15 @@ variables:
       * rain_efficiency
     }}
   current_water: |
-    {{ (soil_saturation / 100) * water_capacity }}
+    {{ (soil_saturation / 100) * (water_capacity | float(0)) }}
   new_soil_saturation: >
     {% set w =
-      current_water
-      - water_loss
-      + rain_gain
+      (current_water | float(0))
+      - (water_loss | float(0))
+      + (rain_gain | float(0))
     %}
 
-    {% set raw = (w / water_capacity) * 100 - drainage_loss %}
+    {% set raw = (w / (water_capacity | float(0))) * 100 - drainage_loss %}
     {#
       Soil texture drainage coefficient.
       Current setting: clay soil.
