@@ -1,0 +1,225 @@
+alias: Protection thermique - système global multi-fenêtres (DEBUG + PROD) v2
+description: ""
+triggers:
+  - minutes: /1
+    trigger: time_pattern
+actions:
+  - repeat:
+      for_each: "{{ windows }}"
+      sequence:
+        - variables:
+            w: "{{ repeat.item }}"
+            w_name: "{{ repeat.item.name }}"
+            w_volet: "{{ repeat.item.volet }}"
+            w_helper: "{{ repeat.item.helper }}"
+            w_temp: "{{ repeat.item.temp_sensor }}"
+            w_overheat_threshold: "{{ repeat.item.overheat_threshold | float }}"
+            w_comfort_threshold: "{{ repeat.item.comfort_threshold | float }}"
+            w_comfort_cover: "{{ repeat.item.comfort_cover | float }}"
+            w_az_min: "{{ repeat.item.az_min | float }}"
+            w_az_max: "{{ repeat.item.az_max | float }}"
+            w_el_min: "{{ repeat.item.el_min | float }}"
+        - variables:
+            sun_in_range: |
+              {{
+                sun_az >= w_az_min
+                and sun_az <= w_az_max
+                and sun_el > w_el_min
+              }}
+            heat_is_high: |
+              {{
+                (
+                  states(w_temp) | float(0) >= w_overheat_threshold
+                )
+                or heat_wave
+              }}
+            can_cool: |
+              {{
+                states(w_temp) | float(0) >= w_comfort_threshold
+                and
+                states(w_temp) | float(0) >= (outside_temp - cooling_offset)
+              }}
+            cover_is_low: |
+              {{
+                state_attr(w_volet,'current_position') | float(100) > 35
+              }}
+            helper_off: "{{ is_state(w_helper,'off') }}"
+            helper_on: "{{ is_state(w_helper,'on') }}"
+            decision: |
+              {% set temp = states(w_temp) | float(0) %}
+              {% set decision = 'do_nothing' %}
+
+              {# Priorité basse : confort #}
+              {% if helper_off
+                and cover_is_low
+                and sun_in_range
+                and relative_uv >= uv_threshold
+                and temp >= w_comfort_threshold
+              %}
+                {% set decision = 'comfort' %}
+              {% endif %}
+
+              {# Priorité moyenne : ouverture #}
+              {% if helper_on
+                and (
+                  not sun_in_range
+                  or relative_uv < uv_threshold
+                  or temp <= w_comfort_threshold - 1
+                )
+              %}
+                {% set decision = 'open' %}
+              {% endif %}
+
+              {# Priorité haute : surchauffe #}
+              {% if helper_off
+                and cover_is_low
+                and sun_in_range
+                and relative_uv >= uv_threshold
+                and (
+                  temp >= w_overheat_threshold
+                  or heat_wave
+                )
+              %}
+                {% set decision = 'overheat' %}
+              {% endif %}
+
+              {{ decision }}       
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: |
+                    {{
+                      is_state('input_boolean.debug_protection_solaire', 'on')
+                      or decision in ['open', 'comfort', 'overheat']
+                    }}
+              sequence:
+                - data:
+                    title: 🌞 PROTECTION VOLET - {{ w_name }}
+                    message: >
+                      🌍 Soleil: azimuth = {{ sun_az }} elevation = {{ sun_el }}
+
+                      ☀️ UV: {{ uv }}     ☁️ Couverture nuageuse: {{
+                      states(cloud_cover_sensor) }}% 🌤️ UV
+                      relatif: {{ relative_uv | round(1) }} 
+
+                      🌡️ Canicule: {{ heat_wave }} 🌡️ Temp intérieure: {{
+                      states(w_temp) }} 🌡️ Temp extérieure: {{ outside_temp }}
+
+                      🪟 Volet position: {{
+                      state_attr(w_volet,'current_position') }}
+
+                      📐 Zone solaire: az_min = {{ w_az_min }} az_max = {{
+                      w_az_max }} el_min = {{ w_el_min }}
+
+                      ✔ SUN_IN_RANGE = {{ sun_in_range }}  
+
+                      ✔ HEAT_IS_HIGH = {{ heat_is_high }}  
+
+                      ✔ COVER_INSUFFICIENT = {{ cover_is_low }} 
+
+                      ✔ HELPER = {{ states(w_helper) }}
+
+                      🎯 DÉCISION = {{ decision }}                  
+                  action: persistent_notification.create
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ decision == 'overheat' }}"
+              sequence:
+                - data:
+                    volet: "{{ w_volet }}"
+                    position: 0
+                    helper: "{{ w_helper }}"
+                  action: script.protection_solaire_volet
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ decision == 'comfort' }}"
+              sequence:
+                - data:
+                    volet: "{{ w_volet }}"
+                    position: "{{ w_comfort_cover }}"
+                    helper: "{{ w_helper }}"
+                  action: script.protection_solaire_volet
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ decision == 'open' }}"
+              sequence:
+                - data:
+                    volet: "{{ w_volet }}"
+                    helper: "{{ w_helper }}"
+                  action: script.fin_de_protection_solaire_volet
+variables:
+  windows:
+    - name: cuisine
+      volet: cover.sonoff_mini_zbrbs_5
+      helper: input_boolean.protection_solaire_cuisine_active
+      temp_sensor: sensor.tze200_a8sdabtg_ts0601_temperature
+      overheat_threshold: 23
+      comfort_threshold: 21
+      comfort_cover: 27
+      az_min: 60
+      az_max: 170
+      el_min: 9
+    - name: grande_baie
+      volet: cover.sonoff_mini_zbrbs_4
+      helper: input_boolean.protection_solaire_grande_baie_active
+      temp_sensor: sensor.tze200_a8sdabtg_ts0601_temperature
+      overheat_threshold: 23
+      comfort_threshold: 21
+      comfort_cover: 29
+      az_min: 110
+      az_max: 280
+      el_min: 5
+    - name: petite_baie
+      volet: cover.sonoff_mini_zbrbs_3
+      helper: input_boolean.protection_solaire_petite_baie_active
+      temp_sensor: sensor.tze200_a8sdabtg_ts0601_temperature
+      overheat_threshold: 23
+      comfort_threshold: 21
+      comfort_cover: 29
+      az_min: 210
+      az_max: 355
+      el_min: 5
+    - name: chambre_1
+      volet: cover.sonoff_mini_zbrbs
+      helper: input_boolean.protection_solaire_chambre_1_active
+      temp_sensor: sensor.ewelink_snzb_02p_temperature
+      overheat_threshold: 23
+      comfort_threshold: 21
+      comfort_cover: 29
+      az_min: 210
+      az_max: 355
+      el_min: 5
+    - name: chambre_2
+      volet: cover.sonoff_mini_zbrbs_2
+      helper: input_boolean.protection_solaire_chambre_2_active
+      temp_sensor: sensor.ewelink_snzb_02p_temperature_2
+      overheat_threshold: 23
+      comfort_threshold: 21
+      comfort_cover: 29
+      az_min: 50
+      az_max: 130
+      el_min: 15
+  sun_az: "{{ state_attr('sun.sun','azimuth') | float(0) }}"
+  sun_el: "{{ state_attr('sun.sun','elevation') | float(0) }}"
+  location: paris
+  uv_sensor: "{{ 'sensor.' ~ location ~ '_uv' }}"
+  cloud_cover_sensor: "{{ 'sensor.' ~ location ~ '_cloud_cover' }}"
+  uv: "{{ states(uv_sensor) | float(0) }}"
+  uv_threshold: 4
+  weather_alert_sensor: "{{ 'sensor.' ~ location ~ '_weather_alert' }}"
+  relative_uv: |
+    {{
+      (states(uv_sensor) | float(0))
+      * (1 - (states(cloud_cover_sensor) | float(0) / 100))
+    }}
+  heat_wave: |
+    {{
+      (state_attr(weather_alert_sensor, 'Canicule') | lower)
+      in ['jaune', 'orange', 'rouge']
+    }}
+  outside_temp: "{{ states('sensor.temperature_exterieure') | float(0) }}"
+  cooling_offset: 2
+mode: single

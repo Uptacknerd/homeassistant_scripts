@@ -1,0 +1,94 @@
+alias: Fruit Trees - Irrigation Start
+triggers:
+  - minutes: /10
+    trigger: time_pattern
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ debug_enabled or should_start }}"
+        sequence:
+          - data:
+              title: Fruit Trees - Irrigation Decision
+              message: >
+                Soil saturation: {{ soil_saturation }} %
+
+                Start threshold: {{ start_threshold }} %
+
+                Target saturation: {{ target_soil_saturation }} %
+
+                Deficit: {{ deficit }} %
+
+                Required water: {{ required_water | round(1) }} L
+
+                Target volume: {{ target_volume }} L
+
+                Cycle volume: {{ irrigation_cycle_volume }} L
+
+                Cycle count: {{ cycle_count }}
+
+                Cycle interval: {{ cycle_interval }} s
+
+                Total applied: {{ cycle_count * irrigation_cycle_volume }} L
+
+                Valve state: {{ 'ON' if valve_is_on else 'OFF' }}
+
+                Decision: {{ 'START IRRIGATION' if should_start else 'DO
+                NOTHING' }}
+            action: persistent_notification.create
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ should_start }}"
+        sequence:
+          - target:
+              entity_id: select.electrovanne_mode
+            data:
+              option: capacity
+            action: select.select_option
+          - target:
+              entity_id: number.electrovanne_irrigation_target
+            data:
+              value: "{{ irrigation_cycle_volume | int }}"
+            action: number.set_value
+          - target:
+              entity_id: number.electrovanne_cycle_irrigation_num_times
+            data:
+              value: "{{ cycle_irrigation_num_times | int }}"
+            action: number.set_value
+          - target:
+              entity_id: number.electrovanne_cycle_irrigation_interval
+            data:
+              value: "{{ cycle_interval }}"
+            action: number.set_value
+mode: single
+variables:
+  start_threshold: 40
+  target_soil_saturation: 80
+  irrigation_cycle_volume: 80
+  cycle_interval: 1800
+  irrigation_fraction: 0.3
+  water_capacity: 1900
+  soil_saturation: "{{ states('input_number.watering_fruit_trees_soil_saturation') | float(0) }}"
+  valve_is_on: "{{ is_state('switch.electrovanne', 'on') }}"
+  debug_enabled: "{{ is_state('input_boolean.watering_fruit_trees_debug', 'on') }}"
+  deficit: |
+    {{ [target_soil_saturation - soil_saturation, 0] | max }}
+  required_water: >
+    {{ ([target_soil_saturation - soil_saturation, 0] | max) / 100 *
+    water_capacity }}
+  target_volume: |
+    {{ (([target_soil_saturation - soil_saturation, 0] | max)
+        / 100 * water_capacity * irrigation_fraction) | round(0) }}
+  cycle_count: |
+    {{ (((([target_soil_saturation - soil_saturation, 0] | max)
+        / 100 * water_capacity * irrigation_fraction)
+        / irrigation_cycle_volume) | round(0, 'ceil')) | int }}
+  cycle_irrigation_num_times: |
+    {{ 0 if cycle_count <= 1 else cycle_count }}
+  should_start: |
+    {{
+      (soil_saturation | float(0)) < start_threshold
+      and not valve_is_on
+      and target_volume | float(0) > 0
+    }}

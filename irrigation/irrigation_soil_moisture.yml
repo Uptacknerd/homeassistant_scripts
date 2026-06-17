@@ -1,0 +1,120 @@
+alias: Fruit Trees - Digital Twin - soil moisture
+description: ""
+triggers:
+  - minutes: /10
+    trigger: time_pattern
+actions:
+  - if:
+      - condition: state
+        entity_id: input_boolean.fruit_trees_debug
+        state: "on"
+    then:
+      - action: persistent_notification.create
+        data:
+          title: 🌳 Fruit Trees - DEBUG Soil Model
+          message: >
+            INPUTS: - Soil saturation: {{ soil_saturation }} % - Temperature: {{
+            air_temperature }} °C - Humidity: {{ relative_humidity }} % - Wind:
+            {{ wind_speed }} m/s - UV: {{ uv_index }} - Rain: {{
+            states(entity_rain)|float(0) }} mm/h - Valve: {{
+            states(entity_valve) }}
+
+            CALCULATIONS: - ET0: {{ et0 }} - Stress factor: {{ stress_factor }}
+            - Crop ET: {{ crop_et }}
+
+            - Fast water loss: {{ fast_water_loss }} - Slow water loss: {{
+            slow_water_loss }} - Total water loss: {{ water_loss }}
+
+            - Rain gain: {{ rain_gain }}
+
+            - Drainage loss: {{ drainage_loss }}
+
+            RESULT: - New soil saturation: {{ new_soil_saturation }} %
+  - target:
+      entity_id: input_number.watering_fruit_trees_soil_saturation
+    data:
+      value: "{{ new_soil_saturation }}"
+    action: input_number.set_value
+mode: single
+variables:
+  model_time_step_minutes: 10
+  dt: "{{ model_time_step_minutes / 1440 }}"
+  entity_soil_saturation: input_number.watering_fruit_trees_soil_saturation
+  location: paris
+  entity_temp: "{{ 'sensor.' ~ location ~ '_temperature' }}"
+  entity_humidity: "{{ 'sensor.' ~ location ~ '_humidity' }}"
+  entity_wind: "{{ 'sensor.' ~ location ~ '_wind_speed' }}"
+  entity_uv: "{{ 'sensor.' ~ location ~ '_uv' }}"
+  entity_rain: sensor.openweathermap_rain_intensity
+  entity_valve: switch.electrovanne_state
+  water_capacity: 1900
+  root_zone_area: 16
+  crop_coefficient: 0.85
+  irrigation_flow_rate: 475
+  rain_efficiency: 0.75
+  irrigation_efficiency: 0.95
+  soil_saturation: |
+    {{ states(entity_soil_saturation)|float(100) }}
+  air_temperature: |
+    {{ states(entity_temp)|float(20) }}
+  relative_humidity: |
+    {{ states(entity_humidity)|float(60) }}
+  wind_speed: |
+    {{ states(entity_wind)|float(2) }}
+  uv_index: |
+    {{ states(entity_uv)|float(0) }}
+  solar_radiation: |
+    {{ states(entity_uv)|float(0) * 10 }}
+  et0: |
+    {{
+      (0.0023 * (air_temperature + 17.8) * solar_radiation)
+      + (0.2 * wind_speed)
+      - (0.02 * (100 - relative_humidity))
+    }}
+  stress_factor: |
+    {% if soil_saturation > 70 %}
+      1
+    {% else %}
+      {{ soil_saturation / 70 }}
+    {% endif %}
+  minimal_et: 0.6
+  crop_et: |
+    {{ [et0 * crop_coefficient * stress_factor, minimal_et] | max }}
+  fast_water_loss: |
+    {{ crop_et * 0.7 * root_zone_area * dt }}
+  slow_water_loss: |
+    {{ crop_et * 0.3 * root_zone_area * dt * 0.4 }}
+  water_loss: |
+    {{ fast_water_loss + slow_water_loss }}
+  drainage_loss: |
+    {% if soil_saturation > 90 %}
+      {{ (soil_saturation - 90) ** 1.3 * 0.2 }}
+    {% else %}
+      0
+    {% endif %}
+  rain_gain: |
+    {{
+      states(entity_rain)|float(0)
+      * root_zone_area
+      * (model_time_step_minutes / 60)
+      * rain_efficiency
+    }}
+  current_water: |
+    {{ (soil_saturation / 100) * water_capacity }}
+  new_soil_saturation: >
+    {% set w =
+      current_water
+      - water_loss
+      + rain_gain
+    %}
+
+    {% set raw = (w / water_capacity) * 100 - drainage_loss %} {% set k = 0.35
+    %} {# coefficient de drainage argile #} {% if raw > 100 %}
+      {% set corrected = 100 + (raw - 100) * (1 - k) %}
+    {% elif raw < 0 %}
+      {% set corrected = raw * (1 - k) %}
+    {% else %}
+      {% set corrected = raw %}
+    {% endif %}
+
+    {{ [0, [corrected, 100] | min] | max }}

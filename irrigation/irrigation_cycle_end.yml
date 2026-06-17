@@ -1,0 +1,37 @@
+alias: Fruit Trees - Irrigation Cycle End
+description: ""
+triggers:
+  - trigger: state
+    entity_id:
+      - switch.electrovanne_state
+    from:
+      - "on"
+    to:
+      - "off"
+actions:
+  - action: persistent_notification.create
+    data:
+      title: Fruit Trees - Irrigation End
+      message: |
+        Irrigation cycle finished
+        Volume delivered: {{ irrigation_volume }} L
+        Gain: {{ irrigation_gain_percent | round(2) }} %
+        Previous saturation: {{ soil_saturation }} %
+        New estimated saturation: {{ new_soil_saturation | round(2) }} %
+  - action: input_number.set_value
+    target:
+      entity_id: input_number.watering_fruit_trees_soil_saturation
+    data:
+      value: "{{ new_soil_saturation }}"
+mode: single
+variables:
+  irrigation_volume: |
+    {{ states('sensor.electrovanne_water_consumed')|float(0) }}
+  soil_saturation: |
+    {{ states('input_number.watering_fruit_trees_soil_saturation')|float(0) }}
+  water_capacity: 1900
+  irrigation_efficiency: 0.95
+  irrigation_gain_percent: |
+    {{ irrigation_volume * irrigation_efficiency / water_capacity * 100 }}
+  new_soil_saturation: |
+    {{ [0, [soil_saturation + irrigation_gain_percent, 100] | min] | max }}
