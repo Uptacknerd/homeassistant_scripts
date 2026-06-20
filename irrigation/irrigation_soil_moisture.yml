@@ -12,12 +12,11 @@ actions:
       - action: persistent_notification.create
         data:
           title: 🌳 Fruit Trees - DEBUG Soil Model
-          message: >
+          message: |
             INPUTS: - Soil saturation: {{ soil_saturation }} % - Temperature: {{
             air_temperature }} °C - Humidity: {{ relative_humidity }} % - Wind:
             {{ wind_speed }} m/s - UV: {{ uv_index }} - Rain: {{
-            states(entity_rain)|float(0) }} mm/h - Valve: {{
-            states(entity_valve) }}
+            states(entity_rain)|float(0) }} mm/h
 
             CALCULATIONS: - ET0: {{ et0 }} - Stress factor: {{ stress_factor }}
             - Crop ET: {{ crop_et }}
@@ -33,92 +32,105 @@ actions:
   - target:
       entity_id: input_number.watering_fruit_trees_soil_saturation
     data:
-      value: "{{ new_soil_saturation }}"
+      value: >
+        {{ new_soil_saturation | float(0) }}
     action: input_number.set_value
 mode: single
 variables:
+  # Time step of the numerical model. Interval between two water-balance updates. Unit: minutes (min)
   model_time_step_minutes: 10
+  # Time step converted to a fraction of a day for evapotranspiration calculations. Unit: days (d)
   dt: "{{ model_time_step_minutes / 1440 }}"
+  # Home Assistant entity storing the simulated soil moisture level. Unit: saturation percentage (%)
   entity_soil_saturation: input_number.watering_fruit_trees_soil_saturation
+  # Prefix used to build the weather sensor entity IDs associated with the orchard. Unit: none (text)
   location: paris
+  # Air temperature sensor used by the model. Unit: °C
   entity_temp: "{{ 'sensor.' ~ location ~ '_temperature' }}"
+  # Relative humidity sensor used by the model. Unit: % RH
   entity_humidity: "{{ 'sensor.' ~ location ~ '_humidity' }}"
+  # Wind speed sensor used by the model. Unit: m/s
   entity_wind: "{{ 'sensor.' ~ location ~ '_wind_speed' }}"
+  # UV index sensor used as an approximation of solar radiation. Unit: UV index
   entity_uv: "{{ 'sensor.' ~ location ~ '_uv' }}"
+  # Instantaneous rain intensity sensor. Unit: mm/h
   entity_rain: sensor.openweathermap_rain_intensity
-  entity_valve: switch.electrovanne_state
-  # Number of trees represented by this model, unitless.
+  # Total number of trees included in the model. Unit: trees
   tree_count: 8
-  # Horizontal surface area covered by one tree's root zone, in square meters (m2).
-  # Multiply by tree_count to get the total modeled root zone area.
+  # Average area explored by the roots of one tree. Unit: m²/tree
   individual_root_zone_area: 2
-  # Total horizontal surface area of the modeled root zone, in square meters (m2).
+  # Total root-zone area of the orchard. Unit: m²
   root_zone_area: "{{ (tree_count | float(0)) * (individual_root_zone_area | float(0)) }}"
-  # Modeled depth of the root zone, in meters (m).
-  # This is the average effective rooting depth used by the model.
+  # Average depth of the active root zone. Unit: m
   root_zone_depth: 0.625
+  # Total soil volume explored by the roots. Unit: m³
   root_zone_volume: "{{ (root_zone_area | float(0)) * (root_zone_depth | float(0)) }}"
-  # Usable water storage density of the root zone, expressed in L/m3.
-  #
-  # This is the soil-type parameter: how many liters of plant-available water
-  # one cubic meter of soil can hold before drainage dominates.
-  #
-  # To estimate the total capacity used by the model:
-  #   water_capacity (L) = root_zone_volume (m3) * usable_water_storage (L/m3)
-  #
-  # If you have a real soil test, use that value first. Otherwise, use the
-  # soil texture as a starting point:
-  #
-  # - sand: 100 to 130 L/m3
-  # - loam: 140 to 170 L/m3
-  # - clay: 180 to 220 L/m3
-  #
-  # Current setting follows a clay-like soil behavior.
+  # Available soil water storage, i.e. the amount of plant-available water per m³ of soil. Unit: L/m³
   usable_water_storage: 190
+  # Total available water storage capacity in the root zone. Unit: liters (L)
   water_capacity: "{{ (root_zone_volume | float(0)) * (usable_water_storage | float(0)) }}"
+  # Crop coefficient (Kc) representing the specific water needs of the fruit trees relative to ET0. Unit: dimensionless
   crop_coefficient: 0.85
+  # Nominal flow rate of the irrigation system. Unit: L/h
   irrigation_flow_rate: 475
+  # Fraction of rainfall that actually infiltrates and is available to the roots. Unit: coefficient (0-1)
   rain_efficiency: 0.75
+  # Fraction of irrigation water that is actually available to the roots after losses. Unit: coefficient (0-1)
   irrigation_efficiency: 0.95
+  # Current saturation level of the simulated soil. Unit: %
   soil_saturation: |
     {{ states(entity_soil_saturation)|float(100) }}
+  # Air temperature used for evapotranspiration calculations. Unit: °C
   air_temperature: |
     {{ states(entity_temp)|float(20) }}
+  # Relative air humidity. Unit: %
   relative_humidity: |
     {{ states(entity_humidity)|float(60) }}
+  # Wind speed. Unit: m/s
   wind_speed: |
     {{ states(entity_wind)|float(2) }}
+  # Measured UV index. Used as a proxy for solar radiation. Unit: UV index
   uv_index: |
     {{ states(entity_uv)|float(0) }}
+  # Estimated solar radiation derived from the UV index. Unit: model-specific arbitrary value
   solar_radiation: |
     {{ states(entity_uv)|float(0) * 10 }}
+  # Reference evapotranspiration estimated from weather conditions. Unit: mm/day
   et0: |
     {{
       (0.0023 * (air_temperature + 17.8) * solar_radiation)
       + (0.2 * wind_speed)
       - (0.02 * (100 - relative_humidity))
     }}
+  # Water stress factor reducing water consumption as the soil dries out. Unit: coefficient (0-1)
   stress_factor: |
     {% if soil_saturation > 70 %}
       1
     {% else %}
       {{ soil_saturation / 70 }}
     {% endif %}
+  # Minimum evapotranspiration value enforced to avoid a zero consumption rate. Unit: mm/day
   minimal_et: 0.6
+  # Actual tree evapotranspiration after applying crop and stress coefficients. Unit: mm/day
   crop_et: |
     {{ [et0 * crop_coefficient * stress_factor, minimal_et] | max }}
+  # Fast water loss (surface evaporation and immediate transpiration). Unit: liters (L)
   fast_water_loss: |
     {{ crop_et * 0.7 * root_zone_area * dt }}
+  # Slow water loss coming from deeper soil layers. Unit: liters (L)
   slow_water_loss: |
     {{ crop_et * 0.3 * root_zone_area * dt * 0.4 }}
+  # Total soil water loss over the time step. Unit: liters (L)
   water_loss: |
     {{ fast_water_loss + slow_water_loss }}
+  # Water loss due to gravitational drainage when the soil is close to saturation. Unit: saturation points (%)
   drainage_loss: |
     {% if soil_saturation > 90 %}
       {{ (soil_saturation - 90) ** 1.3 * 0.2 }}
     {% else %}
       0
     {% endif %}
+  # Amount of water added to the soil by rainfall during the time step. Unit: liters (L)
   rain_gain: |
     {{
       states(entity_rain)|float(0)
@@ -126,32 +138,28 @@ variables:
       * (model_time_step_minutes / 60)
       * rain_efficiency
     }}
+  # Amount of water currently stored in the root zone. Unit: liters (L)
   current_water: |
     {{ (soil_saturation / 100) * (water_capacity | float(0)) }}
-  new_soil_saturation: >
+  # Soil saturation level after taking losses, gains, and drainage into account. Unit: %
+  new_soil_saturation: |
+    {# Intermediate water stock calculated before converting to saturation percentage. Unit: liters (L) #}
     {% set w =
       (current_water | float(0))
       - (water_loss | float(0))
       + (rain_gain | float(0))
     %}
-
+    {# Theoretical saturation before soil-texture correction. Unit: % #}
     {% set raw = (w / (water_capacity | float(0))) * 100 - drainage_loss %}
-    {#
-      Soil texture drainage coefficient.
-      Current setting: clay soil.
-      Examples:
-      - clay: 0.35
-      - loam: 0.20
-      - sand: 0.08
-      Higher values mean slower drainage and more water retained.
-    #}
+    {# Soil texture drainage coefficient. Current setting: clay soil. Examples: clay: 0.35, loam: 0.20, sand: 0.08. Higher values mean slower drainage and more water retention. #}
+    {# Soil texture-dependent water retention coefficient. The higher it is, the more water the soil retains. Unit: coefficient (0-1) #}
     {% set k = 0.35 %}
     {% if raw > 100 %}
-      {% set corrected = 100 + (raw - 100) * (1 - k) %}
+      {# Corrected saturation after taking soil texture into account. Unit: % #}
+      {% set corrected_saturation = 100 + (raw - 100) * (1 - k) %}
     {% elif raw < 0 %}
-      {% set corrected = raw * (1 - k) %}
+      {% set corrected_saturation = raw * (1 - k) %}
     {% else %}
-      {% set corrected = raw %}
+      {% set corrected_saturation = raw %}
     {% endif %}
-
-    {{ [0, [corrected, 100] | min] | max }}
+    {{ [0, [corrected_saturation, 100] | min] | max }}
