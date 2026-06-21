@@ -33,8 +33,7 @@ actions:
 
                 Valve state: {{ 'ON' if valve_is_on else 'OFF' }}
 
-                Decision: {{ 'START IRRIGATION' if should_start else 'DO
-                NOTHING' }}
+                Decision: {{ 'START IRRIGATION' if should_start else 'DO NOTHING' }}
             action: persistent_notification.create
   - choose:
       - conditions:
