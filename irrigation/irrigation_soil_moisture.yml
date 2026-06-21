@@ -15,7 +15,7 @@ actions:
           message: |
             INPUTS: - Soil saturation: {{ soil_saturation }} % - Temperature: {{
             air_temperature }} °C - Humidity: {{ relative_humidity }} % - Wind:
-            {{ wind_speed }} m/s - UV: {{ uv_index }} - Rain: {{
+            {{ wind_speed }} m/s - Solar radiation:{{ solar_radiation }} - Rain: {{
             states(entity_rain)|float(0) }} mm/h
 
             CALCULATIONS: - ET0: {{ et0 }} - Stress factor: {{ stress_factor }}
@@ -35,6 +35,12 @@ actions:
       value: >
         {{ new_soil_saturation | float(0) }}
     action: input_number.set_value
+  - target:
+      entity_id: input_number.soil_saturation_derivative
+    data:
+      value: >
+        {{ soil_saturation_derivative | float(0) }}
+    action: input_number.set_value
 mode: single
 variables:
   # Time step of the numerical model. Interval between two water-balance updates. Unit: minutes (min)
@@ -43,8 +49,9 @@ variables:
   dt: "{{ model_time_step_minutes / 1440 }}"
   # Home Assistant entity storing the simulated soil moisture level. Unit: saturation percentage (%)
   entity_soil_saturation: input_number.watering_fruit_trees_soil_saturation
-  # Prefix used to build the weather sensor entity IDs associated with the orchard. Unit: none (text)
-  location: paris
+  # Prefix used to build the weather sensor entity IDs associated with the orchard.
+  location: |
+    {{ states('input_text.location') }}
   # Air temperature sensor used by the model. Unit: °C
   entity_temp: "{{ 'sensor.' ~ location ~ '_temperature' }}"
   # Relative humidity sensor used by the model. Unit: % RH
@@ -55,6 +62,27 @@ variables:
   entity_uv: "{{ 'sensor.' ~ location ~ '_uv' }}"
   # Instantaneous rain intensity sensor. Unit: mm/h
   entity_rain: sensor.openweathermap_rain_intensity
+  sun_elevation: |
+    {{ state_attr('sun.sun', 'elevation') | float(-10) }}
+
+  daylight_factor: |
+    {% set elev = sun_elevation | float %}
+    {% if elev <= 0 %}
+      0
+    {% elif elev >= 30 %}
+      1
+    {% else %}
+      {{ elev / 30 }}
+    {% endif %}
+
+  solar_radiation: |
+    {{ states(entity_uv)|float(0) * 10 * (daylight_factor | float(0)) }}
+  # Fraction of total crop evapotranspiration assigned to rapid water losses
+  # (surface evaporation and active root uptake). Unit: coefficient (0-1)
+  fast_loss_gain: 0.7
+  # Fraction of total crop evapotranspiration assigned to slower depletion
+  # of deeper soil moisture reserves. Unit: coefficient (0-1)
+  slow_loss_gain: 0.3
   # Total number of trees included in the model. Unit: trees
   tree_count: 8
   # Average area explored by the roots of one tree. Unit: m²/tree
@@ -65,6 +93,18 @@ variables:
   root_zone_depth: 0.625
   # Total soil volume explored by the roots. Unit: m³
   root_zone_volume: "{{ (root_zone_area | float(0)) * (root_zone_depth | float(0)) }}"
+  # Relative root water uptake as a function of solar elevation.
+  # Represents the reduction in transpiration-driven water extraction
+  # during nighttime and low-light conditions. Unit: coefficient (0-1)
+  root_absorption_factor: |
+    {% set elev = state_attr('sun.sun', 'elevation') | float(-10) %}
+    {% if elev <= -6 %}
+      0.4
+    {% elif elev >= 20 %}
+      1.0
+    {% else %}
+      {{ 0.4 + ((elev + 6) / 26) * 0.6 }}
+    {% endif %}
   # Available soil water storage, i.e. the amount of plant-available water per m³ of soil. Unit: L/m³
   usable_water_storage: 190
   # Total available water storage capacity in the root zone. Unit: liters (L)
@@ -89,12 +129,6 @@ variables:
   # Wind speed. Unit: m/s
   wind_speed: |
     {{ states(entity_wind)|float(2) }}
-  # Measured UV index. Used as a proxy for solar radiation. Unit: UV index
-  uv_index: |
-    {{ states(entity_uv)|float(0) }}
-  # Estimated solar radiation derived from the UV index. Unit: model-specific arbitrary value
-  solar_radiation: |
-    {{ states(entity_uv)|float(0) * 10 }}
   # Reference evapotranspiration estimated from weather conditions. Unit: mm/day
   et0: |
     {{
@@ -110,16 +144,21 @@ variables:
       {{ soil_saturation / 70 }}
     {% endif %}
   # Minimum evapotranspiration value enforced to avoid a zero consumption rate. Unit: mm/day
-  minimal_et: 0.6
+  minimal_et: |
+    {% if is_state('sun.sun', 'above_horizon') %}
+      0.2
+    {% else %}
+      0
+    {% endif %}
   # Actual tree evapotranspiration after applying crop and stress coefficients. Unit: mm/day
   crop_et: |
     {{ [et0 * crop_coefficient * stress_factor, minimal_et] | max }}
   # Fast water loss (surface evaporation and immediate transpiration). Unit: liters (L)
   fast_water_loss: |
-    {{ crop_et * 0.7 * root_zone_area * dt }}
+    {{ crop_et * root_absorption_factor * root_zone_area * dt * fast_loss_gain}}
   # Slow water loss coming from deeper soil layers. Unit: liters (L)
   slow_water_loss: |
-    {{ crop_et * 0.3 * root_zone_area * dt * 0.4 }}
+    {{ crop_et * root_zone_area * dt * 0.25 * slow_loss_gain}}
   # Total soil water loss over the time step. Unit: liters (L)
   water_loss: |
     {{ fast_water_loss + slow_water_loss }}
@@ -163,3 +202,5 @@ variables:
       {% set corrected_saturation = raw %}
     {% endif %}
     {{ [0, [corrected_saturation, 100] | min] | max }}
+  soil_saturation_derivative: |
+    {{ (new_soil_saturation - soil_saturation) / dt }}
