@@ -9,29 +9,57 @@ triggers:
     to:
       - "off"
 actions:
-  - action: persistent_notification.create
-    data:
-      title: Fruit Trees - Irrigation End
-      message: |
-        Irrigation cycle finished
-        Volume delivered: {{ irrigation_volume }} L
-        Gain: {{ irrigation_gain_percent | round(2) }} %
-        Previous saturation: {{ soil_saturation }} %
-        New estimated saturation: {{ new_soil_saturation | round(2) }} %
-  - action: input_number.set_value
-    target:
+  - if:
+      - condition: state
+        entity_id: input_boolean.fruit_trees_debug
+        state: "on"
+    then:
+      - action: persistent_notification.create
+        data:
+          title: Fruit Trees - Irrigation End
+          message: |
+            Irrigation cycle finished
+            Volume delivered: {{ irrigation_volume }} L
+            Gain: {{ irrigation_gain_percent | round(2) }} %
+            Previous saturation: {{ soil_saturation }} %
+            New estimated saturation: {{ new_soil_saturation | round(2) }} %
+  - target:
       entity_id: input_number.watering_fruit_trees_soil_saturation
     data:
       value: "{{ new_soil_saturation }}"
+    action: input_number.set_value
+  - target:
+      entity_id: input_number.watering_fruit_trees_soil_saturation_derivative
+    data:
+      value: >
+        {{ soil_saturation_derivative | float(0) }}
+    action: input_number.set_value
 mode: single
 variables:
   irrigation_volume: |
     {{ states('sensor.electrovanne_water_consumed')|float(0) }}
   soil_saturation: |
     {{ states('input_number.watering_fruit_trees_soil_saturation')|float(0) }}
-  water_capacity: 1900
+  # Time step of the numerical model. Unit: minutes (min)
+  model_time_step_minutes: 10
+  # Number of trees represented by the model. Unit: trees
+  tree_count: 8
+  # Average area explored by the roots of one tree. Unit: m²/tree
+  individual_root_zone_area: 2
+  # Total root-zone area of the orchard. Unit: m²
+  root_zone_area: "{{ (tree_count | float(0)) * (individual_root_zone_area | float(0)) }}"
+  # Average depth of the active root zone. Unit: m
+  root_zone_depth: 0.625
+  # Total soil volume explored by the roots. Unit: m³
+  root_zone_volume: "{{ (root_zone_area | float(0)) * (root_zone_depth | float(0)) }}"
+  # Available soil water storage, i.e. the amount of plant-available water per m³ of soil. Unit: L/m³
+  usable_water_storage: 190
+  # Total available water storage capacity in the root zone. Unit: liters (L)
+  water_capacity: "{{ (root_zone_volume | float(0)) * (usable_water_storage | float(0)) }}"
   irrigation_efficiency: 0.95
   irrigation_gain_percent: |
-    {{ irrigation_volume * irrigation_efficiency / water_capacity * 100 }}
+    {{ irrigation_volume * irrigation_efficiency / (water_capacity | float(0)) * 100 }}
   new_soil_saturation: |
     {{ [0, [soil_saturation + irrigation_gain_percent, 100] | min] | max }}
+  soil_saturation_derivative: |
+    {{ (new_soil_saturation - soil_saturation) / dt }}  

@@ -78,8 +78,7 @@ variables:
   deficit: |
     {{ [target_soil_saturation - soil_saturation, 0] | max }}
   required_water: >
-    {{ ([target_soil_saturation - soil_saturation, 0] | max) / 100 *
-    water_capacity }}
+    {{ ([target_soil_saturation - soil_saturation, 0] | max) / 100 * water_capacity }}
   target_volume: |
     {{ (([target_soil_saturation - soil_saturation, 0] | max)
         / 100 * water_capacity * irrigation_fraction) | round(0) }}

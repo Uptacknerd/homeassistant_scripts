@@ -36,7 +36,7 @@ actions:
         {{ new_soil_saturation | float(0) }}
     action: input_number.set_value
   - target:
-      entity_id: input_number.soil_saturation_derivative
+      entity_id: input_number.watering_fruit_trees_soil_saturation_derivative
     data:
       value: >
         {{ soil_saturation_derivative | float(0) }}
